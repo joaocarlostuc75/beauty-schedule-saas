@@ -1,206 +1,247 @@
-import React, { useEffect, useState } from 'react'
-import api from '../../services/api'
+import React, { useState, useEffect } from 'react'
+import { FiPlus, FiEdit2, FiTrash2, FiScissors, FiClock, FiDollarSign } from 'react-icons/fi'
+import axios from 'axios'
 import toast from 'react-hot-toast'
-import { FiEdit2, FiTrash2, FiPlus, FiX } from 'react-icons/fi'
-import { formatCurrency } from '../../utils/helpers'
+import { useAuthStore } from '../../store/authStore'
 
 const AdminServices = () => {
+  const { user } = useAuthStore()
   const [services, setServices] = useState([])
-  const [showModal, setShowModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
   const [editingService, setEditingService] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: '',
     duration_minutes: '',
+    active: true
   })
+
+  const getToken = () => {
+    const storage = localStorage.getItem('auth-storage')
+    return storage ? JSON.parse(storage).state.token : null
+  }
+
+  const fetchServices = async () => {
+    try {
+      const response = await axios.get('/api/services', {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      })
+      setServices(response.data)
+    } catch (error) {
+      toast.error('Erro ao carregar serviços')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     fetchServices()
   }, [])
 
-  const fetchServices = async () => {
-    try {
-      const { data } = await api.get('/admin/services')
-      setServices(data)
-    } catch (error) {
-      toast.error('Erro ao carregar serviços')
-    }
-  }
-
-  const handleOpenModal = (service = null) => {
-    if (service) {
-      setEditingService(service)
-      setFormData({
-        name: service.name,
-        description: service.description || '',
-        price: service.price,
-        duration_minutes: service.duration_minutes,
-      })
-    } else {
-      setEditingService(null)
-      setFormData({ name: '', description: '', price: '', duration_minutes: '' })
-    }
-    setShowModal(true)
-  }
-
-  const handleCloseModal = () => {
-    setShowModal(false)
-    setEditingService(null)
-    setFormData({ name: '', description: '', price: '', duration_minutes: '' })
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      if (editingService) {
-        await api.put(`/admin/services/${editingService.id}`, formData)
-        toast.success('Serviço atualizado')
-      } else {
-        await api.post('/admin/services', formData)
-        toast.success('Serviço criado')
+      const data = {
+        ...formData,
+        price: parseFloat(formData.price),
+        duration_minutes: parseInt(formData.duration_minutes)
       }
-      handleCloseModal()
+
+      if (editingService) {
+        await axios.put(`/api/services/${editingService.id}`, data, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        })
+        toast.success('Serviço atualizado!')
+      } else {
+        await axios.post('/api/services', data, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        })
+        toast.success('Serviço criado!')
+      }
+
+      setShowForm(false)
+      setEditingService(null)
+      setFormData({ name: '', description: '', price: '', duration_minutes: '', active: true })
       fetchServices()
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Erro ao salvar serviço')
+      toast.error(error.response?.data?.error || 'Erro ao salvar serviço')
     }
+  }
+
+  const handleEdit = (service) => {
+    setEditingService(service)
+    setFormData({
+      name: service.name,
+      description: service.description || '',
+      price: service.price.toString(),
+      duration_minutes: service.duration_minutes.toString(),
+      active: service.active
+    })
+    setShowForm(true)
   }
 
   const handleDelete = async (id) => {
     if (!confirm('Tem certeza que deseja excluir este serviço?')) return
+
     try {
-      await api.delete(`/admin/services/${id}`)
-      toast.success('Serviço excluído')
+      await axios.delete(`/api/services/${id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      })
+      toast.success('Serviço excluído!')
       fetchServices()
     } catch (error) {
-      toast.error('Erro ao excluir serviço')
+      toast.error(error.response?.data?.error || 'Erro ao excluir serviço')
     }
   }
+
+  const isAdmin = user?.role === 'ADMIN'
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-gray-800 mb-2">Serviços</h1>
-          <p className="text-gray-600">Gerencie os serviços oferecidos</p>
-        </div>
-        <button onClick={() => handleOpenModal()} className="btn-primary flex items-center gap-2">
-          <FiPlus size={20} />
-          Novo Serviço
-        </button>
-      </div>
-
-      <div className="grid gap-4">
-        {services.map((service) => (
-          <div key={service.id} className="card hover:shadow-glow transition-all">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg text-gray-800 mb-1">{service.name}</h3>
-                <p className="text-gray-600 text-sm mb-3">{service.description}</p>
-                <div className="flex items-center gap-4 text-sm">
-                  <span className="text-primary-600 font-medium">{formatCurrency(service.price)}</span>
-                  <span className="text-gray-500">{service.duration_minutes} minutos</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleOpenModal(service)}
-                  className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="Editar"
-                >
-                  <FiEdit2 size={18} />
-                </button>
-                <button
-                  onClick={() => handleDelete(service.id)}
-                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Excluir"
-                >
-                  <FiTrash2 size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {services.length === 0 && (
-          <div className="card text-center py-12">
-            <p className="text-gray-500">Nenhum serviço cadastrado</p>
-            <button onClick={() => handleOpenModal()} className="btn-primary mt-4">
-              Criar Primeiro Serviço
-            </button>
-          </div>
+        <h1 className="text-2xl font-display font-bold text-gray-800">
+          Serviços
+        </h1>
+        {isAdmin && (
+          <button
+            onClick={() => {
+              setEditingService(null)
+              setFormData({ name: '', description: '', price: '', duration_minutes: '', active: true })
+              setShowForm(true)
+            }}
+            className="btn-primary flex items-center gap-2"
+          >
+            <FiPlus size={20} />
+            Novo Serviço
+          </button>
         )}
       </div>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-2xl font-bold text-gray-800">
-                {editingService ? 'Editar Serviço' : 'Novo Serviço'}
-              </h2>
-              <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600">
-                <FiX size={24} />
+      {showForm && (
+        <div className="card">
+          <h2 className="font-display font-semibold text-lg text-gray-800 mb-4">
+            {editingService ? 'Editar Serviço' : 'Novo Serviço'}
+          </h2>
+          <form onSubmit={handleSubmit} className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Nome</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Preço (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Duração (minutos)</label>
+              <input
+                type="number"
+                value={formData.duration_minutes}
+                onChange={(e) => setFormData({ ...formData, duration_minutes: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
+              <input
+                type="text"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                className="input-field"
+              />
+            </div>
+            <div className="sm:col-span-2 flex items-center gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={formData.active}
+                  onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                />
+                <span className="text-sm text-gray-700">Ativo</span>
+              </label>
+            </div>
+            <div className="sm:col-span-2 flex gap-3">
+              <button type="submit" className="btn-primary">
+                {editingService ? 'Atualizar' : 'Criar'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="btn-secondary"
+              >
+                Cancelar
               </button>
             </div>
+          </form>
+        </div>
+      )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nome *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="input-field"
-                  required
-                />
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin w-8 h-8 border-2 border-primary-300 border-t-primary-500 rounded-full"></div>
+        </div>
+      ) : services.length === 0 ? (
+        <div className="card text-center py-12">
+          <FiScissors className="mx-auto text-gray-300 mb-4" size={48} />
+          <p className="text-gray-500">Nenhum serviço cadastrado</p>
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {services.map((service) => (
+            <div key={service.id} className={`card ${!service.active ? 'opacity-60' : ''}`}>
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h3 className="font-semibold text-gray-800">{service.name}</h3>
+                  <span className={`text-xs px-2 py-1 rounded-full ${service.active ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+                    {service.active ? 'Ativo' : 'Inativo'}
+                  </span>
+                </div>
+                {isAdmin && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEdit(service)}
+                      className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
+                    >
+                      <FiEdit2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(service.id)}
+                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <FiTrash2 size={18} />
+                    </button>
+                  </div>
+                )}
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="input-field"
-                  rows="3"
-                />
+              <p className="text-sm text-gray-500 mb-4 line-clamp-2">{service.description || 'Sem descrição'}</p>
+              <div className="flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-1 text-primary-600">
+                  <FiDollarSign size={16} />
+                  <span className="font-semibold">R$ {parseFloat(service.price).toFixed(2)}</span>
+                </div>
+                <div className="flex items-center gap-1 text-secondary-400">
+                  <FiClock size={16} />
+                  <span>{service.duration_minutes} min</span>
+                </div>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Preço (R$) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  className="input-field"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Duração (minutos) *</label>
-                <input
-                  type="number"
-                  value={formData.duration_minutes}
-                  onChange={(e) => setFormData({ ...formData, duration_minutes: e.target.value })}
-                  className="input-field"
-                  required
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button type="button" onClick={handleCloseModal} className="btn-secondary flex-1">
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primary flex-1">
-                  {editingService ? 'Atualizar' : 'Criar'}
-                </button>
-              </div>
-            </form>
-          </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
