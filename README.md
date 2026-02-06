@@ -1,4 +1,4 @@
-# Beauty Schedule SaaS
+# Beauty Agenda 2026
 
 Micro SaaS para agendamento e gerenciamento de salões de beleza e estética 2026.
 
