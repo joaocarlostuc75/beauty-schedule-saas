@@ -15,20 +15,22 @@ router.get('/', async (req, res) => {
       .eq('id', req.user.salon_id)
       .single()
 
-    if (error || !salon) {
-      return res.status(404).json({ error: 'Salão não encontrado' })
-    }
+    if (error) throw error
 
-    res.json(salon)
+    // Não retornar senhas SMTP
+    const { smtp_pass, ...safeSalon } = salon
+
+    res.json(safeSalon)
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('get settings error:', error)
+    res.status(500).json({ error: 'Erro ao carregar configurações' })
   }
 })
 
 // PUT /api/settings - atualizar configurações do salão (apenas admin)
 router.put('/', requireRole('ADMIN'), async (req, res) => {
   try {
-    const { name, email, phone, address, opening_time, closing_time, timezone, whatsapp_number } = req.body
+    const { name, email, phone, address, whatsapp_number, opening_time, closing_time, timezone } = req.body
 
     const { data: salon, error } = await supabase
       .from('salons')
@@ -37,72 +39,46 @@ router.put('/', requireRole('ADMIN'), async (req, res) => {
         email,
         phone,
         address,
+        whatsapp_number,
         opening_time,
         closing_time,
-        timezone,
-        whatsapp_number: whatsapp_number?.replace(/\D/g, '')
+        timezone
       })
       .eq('id', req.user.salon_id)
-      .select()
+      .select('id, name, email, phone, address, whatsapp_number, opening_time, closing_time, timezone, logo_url')
       .single()
 
     if (error) throw error
 
     res.json(salon)
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('update settings error:', error)
+    res.status(500).json({ error: 'Erro ao atualizar configurações' })
   }
 })
 
-// POST /api/settings/logo - upload de logo (apenas admin)
+// POST /api/settings/logo - atualizar logo (apenas admin)
 router.post('/logo', requireRole('ADMIN'), async (req, res) => {
   try {
-    const { base64Image, fileName } = req.body
+    const { logo_url } = req.body
 
-    if (!base64Image || !fileName) {
-      return res.status(400).json({ error: 'Imagem e nome do arquivo são obrigatórios' })
+    if (!logo_url) {
+      return res.status(400).json({ error: 'URL da logo é obrigatória' })
     }
 
-    // Remover prefixo data:image/...base64, se existir
-    const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '')
-    const buffer = Buffer.from(base64Data, 'base64')
-
-    // Upload para Supabase Storage
-    const filePath = `${req.user.salon_id}/${Date.now()}_${fileName}`
-    
-    const { data: uploadData, error: uploadError } = await supabase
-      .storage
-      .from('logos')
-      .upload(filePath, buffer, {
-        contentType: 'image/jpeg',
-        upsert: true
-      })
-
-    if (uploadError) {
-      console.error('Upload error:', uploadError)
-      return res.status(500).json({ error: 'Erro ao fazer upload da imagem' })
-    }
-
-    // Obter URL pública
-    const { data: { publicUrl } } = supabase
-      .storage
-      .from('logos')
-      .getPublicUrl(filePath)
-
-    // Atualizar salão com nova logo_url
-    const { data: salon, error: updateError } = await supabase
+    const { data: salon, error } = await supabase
       .from('salons')
-      .update({ logo_url: publicUrl })
+      .update({ logo_url })
       .eq('id', req.user.salon_id)
-      .select()
+      .select('logo_url')
       .single()
 
-    if (updateError) throw updateError
+    if (error) throw error
 
-    res.json({ logo_url: publicUrl, salon })
+    res.json(salon)
   } catch (error) {
-    console.error('Logo upload error:', error)
-    res.status(500).json({ error: error.message })
+    console.error('update logo error:', error)
+    res.status(500).json({ error: 'Erro ao atualizar logo' })
   }
 })
 

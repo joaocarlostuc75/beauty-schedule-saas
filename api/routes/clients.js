@@ -13,38 +13,18 @@ router.get('/', async (req, res) => {
       .from('clients')
       .select('*')
       .eq('salon_id', req.user.salon_id)
-      .order('name')
+      .order('name', { ascending: true })
 
     if (error) throw error
+
     res.json(clients)
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('list clients error:', error)
+    res.status(500).json({ error: 'Erro ao listar clientes' })
   }
 })
 
-// GET /api/clients/:id - detalhes de um cliente
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params
-
-    const { data: client, error } = await supabase
-      .from('clients')
-      .select('*, appointments(*, services(name))')
-      .eq('id', id)
-      .eq('salon_id', req.user.salon_id)
-      .single()
-
-    if (error || !client) {
-      return res.status(404).json({ error: 'Cliente não encontrado' })
-    }
-
-    res.json(client)
-  } catch (error) {
-    res.status(500).json({ error: error.message })
-  }
-})
-
-// POST /api/clients - criar cliente
+// POST /api/clients - criar novo cliente
 router.post('/', async (req, res) => {
   try {
     const { name, email, phone } = req.body
@@ -68,14 +48,15 @@ router.post('/', async (req, res) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(409).json({ error: 'Email já cadastrado para este salão' })
+        return res.status(409).json({ error: 'Cliente com este email já existe' })
       }
       throw error
     }
 
     res.status(201).json(client)
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('create client error:', error)
+    res.status(500).json({ error: 'Erro ao criar cliente' })
   }
 })
 
@@ -101,11 +82,12 @@ router.put('/:id', async (req, res) => {
 
     res.json(client)
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('update client error:', error)
+    res.status(500).json({ error: 'Erro ao atualizar cliente' })
   }
 })
 
-// DELETE /api/clients/:id
+// DELETE /api/clients/:id - deletar cliente
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params
@@ -120,7 +102,8 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ message: 'Cliente removido com sucesso' })
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('delete client error:', error)
+    res.status(500).json({ error: 'Erro ao excluir cliente' })
   }
 })
 

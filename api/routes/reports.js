@@ -1,41 +1,42 @@
 import express from 'express'
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, eachDayOfInterval, parseISO } from 'date-fns'
 import { supabase } from '../config/supabase.js'
 import { authenticate } from '../middleware/auth.js'
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, format, parseISO } from 'date-fns'
 
 const router = express.Router()
 
 router.use(authenticate)
 
-// GET /api/reports/dashboard - estatísticas para o dashboard
+// GET /api/reports/dashboard - métricas para o dashboard
 router.get('/dashboard', async (req, res) => {
   try {
     const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
+    const todayStart = new Date(today.setHours(0, 0, 0, 0)).toISOString()
+    const todayEnd = new Date(today.setHours(23, 59, 59, 999)).toISOString()
+    
+    const weekStart = startOfWeek(today).toISOString()
+    const weekEnd = endOfWeek(today).toISOString()
+    const monthStart = startOfMonth(today).toISOString()
+    const monthEnd = endOfMonth(today).toISOString()
 
     // Agendamentos de hoje
-    const { count: todayAppointments } = await supabase
+    const { count: todayCount } = await supabase
       .from('appointments')
       .select('*', { count: 'exact' })
       .eq('salon_id', req.user.salon_id)
-      .gte('start_datetime', `${todayStr}T00:00:00`)
-      .lte('start_datetime', `${todayStr}T23:59:59`)
+      .gte('start_datetime', todayStart)
+      .lte('start_datetime', todayEnd)
 
     // Agendamentos da semana
-    const weekStart = startOfWeek(today).toISOString()
-    const weekEnd = endOfWeek(today).toISOString()
-    const { count: weekAppointments } = await supabase
+    const { count: weekCount } = await supabase
       .from('appointments')
       .select('*', { count: 'exact' })
       .eq('salon_id', req.user.salon_id)
       .gte('start_datetime', weekStart)
       .lte('start_datetime', weekEnd)
 
-    // Receita do mês (só agendamentos COMPLETED)
-    const monthStart = startOfMonth(today).toISOString()
-    const monthEnd = endOfMonth(today).toISOString()
-    
-    const { data: completedAppointments } = await supabase
+    // Receita do mês (apenas concluídos)
+    const { data: completedMonth } = await supabase
       .from('appointments')
       .select('services(price)')
       .eq('salon_id', req.user.salon_id)
@@ -43,11 +44,11 @@ router.get('/dashboard', async (req, res) => {
       .gte('start_datetime', monthStart)
       .lte('start_datetime', monthEnd)
 
-    const revenue = completedAppointments?.reduce((sum, app) => {
+    const revenue = completedMonth?.reduce((sum, app) => {
       return sum + (app.services?.price || 0)
     }, 0) || 0
 
-    // Taxa de conclusão
+    // Taxa de conclusão do mês
     const { count: totalMonth } = await supabase
       .from('appointments')
       .select('*', { count: 'exact' })
@@ -55,7 +56,7 @@ router.get('/dashboard', async (req, res) => {
       .gte('start_datetime', monthStart)
       .lte('start_datetime', monthEnd)
 
-    const { count: completedMonth } = await supabase
+    const { count: completedCount } = await supabase
       .from('appointments')
       .select('*', { count: 'exact' })
       .eq('salon_id', req.user.salon_id)
@@ -63,17 +64,17 @@ router.get('/dashboard', async (req, res) => {
       .gte('start_datetime', monthStart)
       .lte('start_datetime', monthEnd)
 
-    const completionRate = totalMonth > 0 ? Math.round((completedMonth / totalMonth) * 100) : 0
+    const completionRate = totalMonth > 0 ? Math.round((completedCount / totalMonth) * 100) : 0
 
     res.json({
-      todayAppointments: todayAppointments || 0,
-      weekAppointments: weekAppointments || 0,
+      todayAppointments: todayCount || 0,
+      weekAppointments: weekCount || 0,
       revenue,
       completionRate
     })
   } catch (error) {
-    console.error('Dashboard error:', error)
-    res.status(500).json({ error: error.message })
+    console.error('dashboard stats error:', error)
+    res.status(500).json({ error: 'Erro ao carregar estatísticas' })
   }
 })
 
@@ -84,68 +85,71 @@ router.get('/', async (req, res) => {
     const today = new Date()
     
     let start, end
-    switch (period) {
-      case 'week':
-        start = startOfWeek(today)
-        end = endOfWeek(today)
-        break
-      case 'year':
-        start = startOfYear(today)
-        end = endOfYear(today)
-        break
-      default: // month
-        start = startOfMonth(today)
-        end = endOfMonth(today)
+    
+    if (period === 'week') {
+      start = startOfWeek(today)
+      end = endOfWeek(today)
+    } else if (period === 'year') {
+      start = startOfYear(today)
+      end = endOfYear(today)
+    } else {
+      start = startOfMonth(today)
+      end = endOfMonth(today)
     }
 
-    // Dados dos agendamentos do período
+    const startISO = start.toISOString()
+    const endISO = end.toISOString()
+
+    // Buscar agendamentos do período
     const { data: appointments } = await supabase
       .from('appointments')
-      .select('*, services(*)')
+      .select('*, services(name, price)')
       .eq('salon_id', req.user.salon_id)
-      .gte('start_datetime', start.toISOString())
-      .lte('start_datetime', end.toISOString())
+      .gte('start_datetime', startISO)
+      .lte('start_datetime', endISO)
 
-    // Cálculos
+    // Calcular métricas
     const total = appointments?.length || 0
-    const cancelled = appointments?.filter(a => a.status === 'CANCELLED').length || 0
     const completed = appointments?.filter(a => a.status === 'COMPLETED').length || 0
+    const cancelled = appointments?.filter(a => a.status === 'CANCELLED').length || 0
     const revenue = appointments
       ?.filter(a => a.status === 'COMPLETED')
       .reduce((sum, a) => sum + (a.services?.price || 0), 0) || 0
 
-    // Agrupar por serviço
-    const servicesMap = {}
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0
+    const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0
+
+    // Agendamentos por serviço
+    const serviceMap = {}
     appointments?.forEach(app => {
       const serviceName = app.services?.name || 'Desconhecido'
-      if (!servicesMap[serviceName]) {
-        servicesMap[serviceName] = 0
+      if (!serviceMap[serviceName]) {
+        serviceMap[serviceName] = { name: serviceName, count: 0 }
       }
-      servicesMap[serviceName]++
+      serviceMap[serviceName].count++
     })
-    const services = Object.entries(servicesMap).map(([name, count]) => ({ name, count }))
 
-    // Agrupar por dia
-    const dailyMap = {}
-    appointments?.forEach(app => {
-      const date = format(parseISO(app.start_datetime), 'dd/MM')
-      if (!dailyMap[date]) {
-        dailyMap[date] = 0
-      }
-      dailyMap[date]++
+    // Agendamentos por dia
+    const days = eachDayOfInterval({ start, end })
+    const dailyData = days.map(day => {
+      const dayStr = format(day, 'yyyy-MM-dd')
+      const count = appointments?.filter(a => 
+        format(parseISO(a.start_datetime), 'yyyy-MM-dd') === dayStr
+      ).length || 0
+      return { date: format(day, 'dd/MM'), count }
     })
-    const daily = Object.entries(dailyMap).map(([date, count]) => ({ date, count }))
 
     res.json({
       revenue,
       appointments: total,
-      cancellations: total > 0 ? Math.round((cancelled / total) * 100) : 0,
-      completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
-      services,
-      daily
+      cancellations: cancellationRate,
+      completionRate,
+      services: Object.values(serviceMap).sort((a, b) => b.count - a.count),
+      daily: dailyData
     })
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    console.error('reports error:', error)
+    res.status(500).json({ error: 'Erro ao gerar relatórios' })
   }
 })
 
