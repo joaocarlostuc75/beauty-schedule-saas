@@ -1,127 +1,135 @@
-import React, { useState } from 'react'
-import api from '../../services/api'
+import React, { useState, useEffect } from 'react'
+import { FiBarChart2, FiDollarSign, FiCalendar, FiTrendingDown, FiTrendingUp } from 'react-icons/fi'
+import { Bar, Pie } from 'react-chartjs-2'
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js'
+import axios from 'axios'
 import toast from 'react-hot-toast'
-import { FiDownload, FiBarChart2 } from 'react-icons/fi'
-import { formatCurrency } from '../../utils/helpers'
+import { format, startOfMonth, endOfMonth } from 'date-fns'
+
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement)
 
 const AdminReports = () => {
-  const [dateRange, setDateRange] = useState({
-    start: new Date(new Date().setDate(1)).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0],
+  const [period, setPeriod] = useState('month')
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState({
+    revenue: 0,
+    appointments: 0,
+    cancellations: 0,
+    completionRate: 0,
+    services: [],
+    daily: []
   })
-  const [reportData, setReportData] = useState(null)
-  const [loading, setLoading] = useState(false)
 
-  const generateReport = async () => {
-    setLoading(true)
+  const getToken = () => {
+    const storage = localStorage.getItem('auth-storage')
+    return storage ? JSON.parse(storage).state.token : null
+  }
+
+  const fetchReports = async () => {
     try {
-      const { data } = await api.get(`/admin/reports?start=${dateRange.start}&end=${dateRange.end}`)
-      setReportData(data)
+      const response = await axios.get(`/api/reports?period=${period}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      })
+      setData(response.data)
     } catch (error) {
-      toast.error('Erro ao gerar relatório')
+      toast.error('Erro ao carregar relatórios')
     } finally {
       setLoading(false)
     }
   }
 
-  const exportCSV = () => {
-    if (!reportData) return
-    // Simplificado - implementação real seria mais complexa
-    const csv = `Receita Total,${reportData.revenue}\nAgendamentos,${reportData.totalAppointments}\nCancelamentos,${reportData.cancellations}`
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `relatorio_${dateRange.start}_${dateRange.end}.csv`
-    a.click()
-    toast.success('Relatório exportado')
+  useEffect(() => {
+    fetchReports()
+  }, [period])
+
+  const pieData = {
+    labels: data.services.map(s => s.name),
+    datasets: [{
+      data: data.services.map(s => s.count),
+      backgroundColor: [
+        '#f9a8d4', '#c4b5fd', '#86efac', '#93c5fd', '#fca5a5', '#fde047'
+      ],
+      borderWidth: 0
+    }]
   }
+
+  const barData = {
+    labels: data.daily.map(d => d.date),
+    datasets: [{
+      label: 'Agendamentos',
+      data: data.daily.map(d => d.count),
+      backgroundColor: '#f9a8d4',
+      borderRadius: 8
+    }]
+  }
+
+  const stats = [
+    { icon: FiDollarSign, value: `R$ ${data.revenue.toFixed(2)}`, label: 'Receita', color: 'green' },
+    { icon: FiCalendar, value: data.appointments, label: 'Agendamentos', color: 'primary' },
+    { icon: FiTrendingDown, value: `${data.cancellations}%`, label: 'Cancelamentos', color: 'red' },
+    { icon: FiTrendingUp, value: `${data.completionRate}%`, label: 'Conclusão', color: 'blue' }
+  ]
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-gray-800 mb-2">Relatórios</h1>
-        <p className="text-gray-600">Análises e estatísticas do seu negócio</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h1 className="text-2xl font-display font-bold text-gray-800">Relatórios</h1>
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          className="px-4 py-2 rounded-xl border border-gray-200 focus:border-primary-300 focus:ring-2 focus:ring-primary-100 outline-none"
+        >
+          <option value="week">Esta Semana</option>
+          <option value="month">Este Mês</option>
+          <option value="year">Este Ano</option>
+        </select>
       </div>
 
-      {/* Filtros */}
-      <div className="card">
-        <h2 className="font-semibold text-lg text-gray-800 mb-4">Período</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Data Início</label>
-            <input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-              className="input-field"
-            />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((stat, index) => (
+          <div key={index} className="card">
+            <div className="flex items-center gap-3 mb-2">
+              <div className={`w-10 h-10 bg-${stat.color}-100 rounded-xl flex items-center justify-center`}>
+                <stat.icon className={`text-${stat.color}-500`} size={20} />
+              </div>
+              <span className="text-2xl font-bold text-gray-800">{loading ? '...' : stat.value}</span>
+            </div>
+            <p className="text-sm text-gray-500">{stat.label}</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Data Fim</label>
-            <input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-              className="input-field"
-            />
-          </div>
-          <div className="flex items-end">
-            <button onClick={generateReport} disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
-              <FiBarChart2 size={20} />
-              {loading ? 'Gerando...' : 'Gerar Relatório'}
-            </button>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Resultados */}
-      {reportData && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="card bg-gradient-to-br from-green-50 to-green-100 border border-green-200">
-              <h3 className="text-gray-700 font-medium mb-2">Receita Total</h3>
-              <p className="text-3xl font-bold text-gray-800">{formatCurrency(reportData.revenue)}</p>
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div className="card">
+          <h2 className="font-display font-semibold text-lg text-gray-800 mb-4">
+            Agendamentos por Dia
+          </h2>
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin w-8 h-8 border-2 border-primary-300 border-t-primary-500 rounded-full"></div>
             </div>
-            <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
-              <h3 className="text-gray-700 font-medium mb-2">Agendamentos</h3>
-              <p className="text-3xl font-bold text-gray-800">{reportData.totalAppointments}</p>
-            </div>
-            <div className="card bg-gradient-to-br from-red-50 to-red-100 border border-red-200">
-              <h3 className="text-gray-700 font-medium mb-2">Cancelamentos</h3>
-              <p className="text-3xl font-bold text-gray-800">{reportData.cancellations}</p>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-lg text-gray-800">Serviços Mais Populares</h2>
-              <button onClick={exportCSV} className="btn-secondary flex items-center gap-2">
-                <FiDownload size={18} />
-                Exportar CSV
-              </button>
-            </div>
-            <div className="space-y-3">
-              {reportData.topServices?.map((service, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                  <div>
-                    <p className="font-medium text-gray-800">{service.name}</p>
-                    <p className="text-sm text-gray-600">{service.count} agendamentos</p>
-                  </div>
-                  <p className="text-primary-600 font-semibold">{formatCurrency(service.revenue)}</p>
-                </div>
-              )) || <p className="text-gray-500 text-center py-4">Nenhum dado disponível</p>}
-            </div>
-          </div>
-        </>
-      )}
-
-      {!reportData && !loading && (
-        <div className="card text-center py-12">
-          <FiBarChart2 size={48} className="text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">Selecione um período e gere seu relatório</p>
+          ) : data.daily.length === 0 ? (
+            <p className="text-center text-gray-500 py-12">Sem dados para o período</p>
+          ) : (
+            <Bar data={barData} options={{ responsive: true, maintainAspectRatio: false }} height={250} />
+          )}
         </div>
-      )}
+
+        <div className="card">
+          <h2 className="font-display font-semibold text-lg text-gray-800 mb-4">
+            Distribuição por Serviço
+          </h2>
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin w-8 h-8 border-2 border-primary-300 border-t-primary-500 rounded-full"></div>
+            </div>
+          ) : data.services.length === 0 ? (
+            <p className="text-center text-gray-500 py-12">Sem dados para o período</p>
+          ) : (
+            <Pie data={pieData} options={{ responsive: true, maintainAspectRatio: false }} height={250} />
+          )}
+        </div>
+      </div>
     </div>
   )
 }
