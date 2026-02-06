@@ -1,6 +1,6 @@
 # Beauty Schedule SaaS
 
-Micro SaaS para agendamento e gerenciamento de salões de beleza e estética.
+Micro SaaS para agendamento e gerenciamento de salões de beleza e estética 2026.
 
 ## 🚀 Stack
 
