@@ -1,10 +1,8 @@
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
-import { supabase } from '../config/supabase.js'
-import { generateToken, authenticate } from '../middleware/auth.js'
+import { query } from '../config/database.js'
+import { generateToken } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -17,19 +15,20 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email e senha são obrigatórios' })
     }
     
-    // Find user with salon
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*, salons(*)')
-      .eq('email', email)
-      .eq('active', true)
-      .single()
+    const result = await query(
+      `SELECT u.*, s.id as salon_id, s.name as salon_name, s.email as salon_email, 
+              s.logo_url, s.whatsapp_number, s.opening_time, s.closing_time
+       FROM users u
+       JOIN salons s ON s.id = u.salon_id
+       WHERE u.email = $1 AND u.active = true`,
+      [email]
+    )
     
-    if (error || !user) {
+    if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Credenciais inválidas' })
     }
     
-    // Verify password
+    const user = result.rows[0]
     const isValid = await bcrypt.compare(password, user.password_hash)
     
     if (!isValid) {
@@ -37,12 +36,8 @@ router.post('/login', async (req, res) => {
     }
     
     // Update last login
-    await supabase
-      .from('users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', user.id)
+    await query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id])
     
-    // Generate token
     const token = generateToken({
       id: user.id,
       email: user.email,
@@ -58,7 +53,15 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role
       },
-      salon: user.salons
+      salon: {
+        id: user.salon_id,
+        name: user.salon_name,
+        email: user.salon_email,
+        logo_url: user.logo_url,
+        whatsapp_number: user.whatsapp_number,
+        opening_time: user.opening_time,
+        closing_time: user.closing_time
+      }
     })
   } catch (error) {
     console.error('Login error:', error)
@@ -66,54 +69,38 @@ router.post('/login', async (req, res) => {
   }
 })
 
-// Register (criar primeiro admin - apenas para setup inicial)
+// Setup inicial
 router.post('/setup', async (req, res) => {
   try {
     const { salon_name, salon_email, whatsapp_number, admin_name, admin_email, admin_password } = req.body
     
-    // Validar dados
     if (!salon_name || !admin_email || !admin_password) {
       return res.status(400).json({ error: 'Dados incompletos' })
     }
     
     // Criar salão
-    const { data: salon, error: salonError } = await supabase
-      .from('salons')
-      .insert({
-        name: salon_name,
-        email: salon_email || admin_email,
-        whatsapp_number: whatsapp_number?.replace(/\D/g, '')
-      })
-      .select()
-      .single()
+    const salonResult = await query(
+      `INSERT INTO salons (name, email, whatsapp_number) 
+       VALUES ($1, $2, $3) 
+       RETURNING *`,
+      [salon_name, salon_email || admin_email, whatsapp_number?.replace(/\D/g, '')]
+    )
     
-    if (salonError) {
-      return res.status(500).json({ error: 'Erro ao criar salão', details: salonError.message })
-    }
+    const salon = salonResult.rows[0]
     
     // Hash password
     const password_hash = await bcrypt.hash(admin_password, 10)
     
     // Criar admin
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .insert({
-        salon_id: salon.id,
-        email: admin_email,
-        password_hash,
-        name: admin_name,
-        role: 'ADMIN'
-      })
-      .select()
-      .single()
+    const userResult = await query(
+      `INSERT INTO users (salon_id, email, password_hash, name, role) 
+       VALUES ($1, $2, $3, $4, $5) 
+       RETURNING id, name, email, role`,
+      [salon.id, admin_email, password_hash, admin_name, 'ADMIN']
+    )
     
-    if (userError) {
-      // Rollback salão
-      await supabase.from('salons').delete().eq('id', salon.id)
-      return res.status(500).json({ error: 'Erro ao criar usuário', details: userError.message })
-    }
+    const user = userResult.rows[0]
     
-    // Gerar token
     const token = generateToken({
       id: user.id,
       email: user.email,
@@ -124,31 +111,13 @@ router.post('/setup', async (req, res) => {
     res.status(201).json({
       message: 'Setup concluído com sucesso',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      },
+      user,
       salon
     })
   } catch (error) {
     console.error('Setup error:', error)
-    res.status(500).json({ error: 'Erro interno do servidor' })
+    res.status(500).json({ error: 'Erro ao criar setup' })
   }
-})
-
-// Get current user
-router.get('/me', authenticate, async (req, res) => {
-  res.json({
-    user: {
-      id: req.user.id,
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.role
-    },
-    salon: req.user.salon
-  })
 })
 
 export default router
