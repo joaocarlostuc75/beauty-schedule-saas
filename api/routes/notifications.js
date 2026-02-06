@@ -1,6 +1,7 @@
 import express from 'express'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { supabase } from '../config/supabase.js'
 import { authenticate } from '../middleware/auth.js'
 
 const router = express.Router()
@@ -35,7 +36,7 @@ router.post('/whatsapp', async (req, res) => {
     }
     
     // Buscar dados do agendamento com serviço e salão
-    const { data: appointment, error: appError } = await req.app.locals.supabase
+    const { data: appointment, error: appError } = await supabase
       .from('appointments')
       .select(`
         *,
@@ -53,7 +54,7 @@ router.post('/whatsapp', async (req, res) => {
     // Verificar se salão tem WhatsApp configurado
     const salon = appointment.salons
     if (!salon.whatsapp_number) {
-      return res.status(400). { error: 'WhatsApp do salão não configurado. Configure em Configurações.' })
+      return res.status(400).json({ error: 'WhatsApp do salão não configurado. Configure em Configurações.' })
     }
     
     // Preparar dados formatados
@@ -74,7 +75,7 @@ router.post('/whatsapp', async (req, res) => {
     const waLink = generateWhatsAppLink(targetPhone, message)
     
     // Registrar log de notificação
-    await req.app.locals.supabase
+    await supabase
       .from('notification_logs')
       .insert({
         appointment_id,

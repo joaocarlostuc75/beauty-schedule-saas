@@ -1,7 +1,7 @@
 import express from 'express'
-import cors from 'cors'
-import dotenv from 'dotenv'
+import { supabase } from './config/supabase.js'
 
+// Import routes
 import authRoutes from './routes/auth.js'
 import appointmentRoutes from './routes/appointments.js'
 import serviceRoutes from './routes/services.js'
@@ -11,19 +11,27 @@ import settingsRoutes from './routes/settings.js'
 import userRoutes from './routes/users.js'
 import notificationRoutes from './routes/notifications.js'
 
-dotenv.config()
-
 const app = express()
 
-app.use(cors())
 app.use(express.json())
 
-// Health check
+// CORS configuration
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*')
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization')
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200)
+  }
+  next()
+})
+
+// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// Routes
+// Mount routes
 app.use('/api/auth', authRoutes)
 app.use('/api/appointments', appointmentRoutes)
 app.use('/api/services', serviceRoutes)
@@ -43,7 +51,7 @@ app.use((err, req, res, next) => {
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 3001
   app.listen(PORT, () => {
-    console.log(`API running on http://localhost:${PORT}`)
+    console.log(`API server running on http://localhost:${PORT}`)
   })
 }
 
